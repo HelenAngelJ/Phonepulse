@@ -11,7 +11,7 @@ st.set_page_config(layout='wide')
 
 
 #defining the navigation bar
-page = st_navbar(["Explore", "Reports"],logo_path="static/logo.svg")
+page = st_navbar(["Explore", "Reports","Insights"],logo_path="static/logo.svg")
 
 #initializing session state for scrap_button
 def button(button_name):
@@ -40,8 +40,6 @@ def connect_database():
         database=st.secrets["database"])
     return mydb
 
-
-button("apply")
 
 #from database tables to dataframe
 #------------------------------------#
@@ -281,7 +279,18 @@ def amount_formater(val):
         amt = amt[0:len(amt)-3]+","+amt[len(amt)-3:len(amt)]+"."+value[1]
     return amt
 
-with open("C:/Users/USER/py/phonepluse/india_states.geojson") as response:
+def dist_count(unique_state,df_state):
+    array_count = []
+    for i in unique_state:
+        count = 0
+        for j in df_state:
+            if i == j:
+                count = count+1
+                
+        array_count.append(count)
+    return array_count
+
+with open("india_states.geojson") as response:
     geo = json.load(response)
 
 if page == "Explore":
@@ -530,3 +539,161 @@ if page == "Reports":
             with col3:
                 st.image("static\phoneImage.png")         
         
+if page == 'Insights':
+    with st.expander(":violet[which year and quater has the highest number of transaction?]"):
+        db = connect_database()
+        cursor = db.cursor()
+        cursor.execute('''
+                select yr,quater,sum(count) as trans_count
+                from aggregated_transaction
+                group by yr,quater
+                order by trans_count desc
+                ''')
+        result = cursor.fetchall()
+        cursor.close()
+
+        highest_trans_count = pd.DataFrame(result,columns=['year','quater','Transaction Count'])
+        value = {1 :'Q1', 2 : 'Q2',3 : 'Q3',4 : 'Q4'}
+        highest_trans_count['quater'].replace(value,inplace=True)
+        highest_trans_count['year Quater'] = highest_trans_count['year'].astype(str)+" "+highest_trans_count['quater']
+        highest_trans_count.drop(['year','quater'],axis=1,inplace=True)
+        fig = px.bar(highest_trans_count,
+                     x='year Quater',
+                     y='Transaction Count'
+                     )
+        st.plotly_chart(fig)
+    with st.expander(":violet[which year has the higest average transaction amount?]"):
+        db = connect_database()
+        cursor = db.cursor()
+        cursor.execute('''
+            select yr,avg(amount) as amnt
+            from aggregated_transaction
+            group by yr
+            order by amnt desc
+            ''')
+        result1 = cursor.fetchall()
+        cursor.close()
+
+        avg_df = pd.DataFrame(result1,columns=['Year','Average Transaction Amount'])
+        fig = px.pie(avg_df,values='Average Transaction Amount',names='Year')
+        st.plotly_chart(fig)
+    
+    with st.expander(":violet[which state has the highest transaction amount in Q4 of 2023?]"):
+        db = connect_database()
+        cursor = db.cursor()
+        cursor.execute('''
+                                select State,sum(amount) as amnt
+                                from aggregated_transaction
+                                where yr = 2023 and quater = 4
+                                group by State
+                                order by amnt desc
+                            ''')
+        result2 = cursor.fetchall()
+        cursor.close()
+
+        state_df = pd.DataFrame(result2,columns=['State','Amount'])
+        fig = px.bar(state_df,x='State',y='Amount',color = 'State')
+        st.plotly_chart(fig)
+    with st.expander(":violet[states contribution to Phonepe in App Opens from 2018 to 2023?]"):
+        db = connect_database()
+        cursor = db.cursor()
+        cursor.execute('''
+                    select State,yr,Avg(appOpens) as appOpen
+                    from aggregated_user
+                    group by State,yr
+                    order by appOpen
+                    ''')
+        result3 = cursor.fetchall()
+        cursor.close()
+
+        state_cont = pd.DataFrame(result3,columns=['State','Year','AppOpens'])
+        x = st.selectbox("select State",list(state_cont['State'].drop_duplicates()))
+        #st.write(x)
+        fig = px.line(state_cont[state_cont["State"]==x],x='Year',y='AppOpens',color='State')
+        st.plotly_chart(fig)
+    with st.expander(":violet[which are the states that have the most number of districts participation in Transaction]"):
+        year_select = st.selectbox("Select year",[2018,2019,2020,2021,2022,2023])
+        db = connect_database()
+        cursor = db.cursor()
+        cursor.execute(f'''
+                        select districts,State,yr
+                        from top_transaction_districts
+                        where yr = {year_select}
+                        group by State,districts;
+                    ''')
+        result4 = cursor.fetchall()
+        cursor.close()
+
+        dist_state = pd.DataFrame(result4,columns=['District','state','year'])
+        state_name = change_state(dist_state)
+        dist_state['state'].replace(state_name[0],state_name[1],inplace=True)
+
+        unique_state = dist_state['state'].unique()
+        count = dist_count(unique_state,dist_state['state'])
+        dict_count = {'state' : unique_state,'District count':count}
+        dist_df = pd.DataFrame(dict_count)
+        dist_df.sort_values(by='District count',ascending=False,ignore_index=True,inplace=True)
+        
+        fig = px.bar(dist_df,x='state',y='District count',color='state')
+        st.plotly_chart(fig)
+
+    with st.expander(":violet[which are the state that has the most participant districts in User?]"):
+        year_choose = st.radio("select year",[2018,2019,2020,2021,2022,2023])
+        db = connect_database()
+        cursor = db.cursor()
+        cursor.execute(f'''
+                        select districts,State,yr
+                        from top_user_districts
+                        where yr = {year_choose}
+                        group by State,districts;
+                    ''')
+        result5 = cursor.fetchall()
+        cursor.close()
+
+        dist_user_state = pd.DataFrame(result5,columns=['District','state','year'])
+
+        state_name = change_state(dist_user_state)
+        dist_user_state['state'].replace(state_name[0],state_name[1],inplace=True)
+
+        unique_user_state = dist_user_state['state'].unique()
+        count = dist_count(unique_user_state,dist_user_state['state'])
+        dict_count = {'state' : unique_state,'District count':count}
+        dist_user_df = pd.DataFrame(dict_count)
+        dist_user_df.sort_values(by='District count',ascending=False,ignore_index=True,inplace=True)
+
+        fig = px.scatter(dist_user_df,x='state',y='District count',color='state')
+        st.plotly_chart(fig)
+    
+    with st.expander(":violet[which year records the highest transaction count from pincodes contribution?]"):
+        db = connect_database()
+        cursor = db.cursor()
+        cursor.execute('''
+                        select pincode,yr,State,sum(count) as count
+                        from top_transaction_pincodes
+                        group by pincode,yr,State
+                        order by count desc
+                    ''')
+        result5 = cursor.fetchall()
+        cursor.close()
+
+        pincode_df = pd.DataFrame(result5,columns=['pincode','year','state','count'])
+        #st.dataframe(pincode_df)
+        fig = px.scatter(pincode_df,x='year',y='count',color='state')
+        st.plotly_chart(fig)
+
+    with st.expander(":violet[highest Registered users from pincodes along with the state for each year?]"):
+        db = connect_database()
+        cursor = db.cursor()
+        cursor.execute('''
+                        select pincodes,State,yr,sum(registeredUsers) as users
+                        from top_user_pincodes
+                        group by pincodes,State,yr
+                        order by users desc
+                    ''')
+        result6 = cursor.fetchall()
+        cursor.close()
+
+        pin_user_df = pd.DataFrame(result6,columns=['pincode','state','year','user count'])
+
+        fig = px.scatter(pin_user_df,x='year',y='user count',color='state')
+        st.plotly_chart(fig)
