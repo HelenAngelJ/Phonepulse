@@ -1,0 +1,6 @@
+mysql
+streamlit
+pandas
+json
+streamlit_navigation_bar
+plotly
